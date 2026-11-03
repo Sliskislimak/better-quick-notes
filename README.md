@@ -33,7 +33,7 @@ Upstream: [https://github.com/quicknotes/quick-notes](https://github.com/quickno
 | **Google Drive** | Scope `https://www.googleapis.com/auth/drive.file`, upload do **skonfigurowanego folderu** (nie `appDataFolder`), `PATCH` przy kolejnych autosave, śledzenie `driveFileId`. |
 | **Opcje** | Sekcje vault + folder Drive, test połączenia, „Create a Quick Notes folder”, reconnect vaultu. |
 | **Dokumentacja** | [SETUP_GUIDE.md](SETUP_GUIDE.md) — OAuth, ID folderu, vault, klucz `manifest.key`. |
-| **Desktop (eksperyment)** | Katalog [`desktop/`](desktop/) — osobna aplikacja Electron na Windows (notatki przypięte do procesów `.exe`); to rozwinięcie pomysłu, nie część rozszerzenia Chrome. Założenia desktopu: [PROJEKT.md](PROJEKT.md). |
+| **Desktop (Windows)** | Osobne repozytorium — [**better-quick-notes-desktop**](https://github.com/Sliskislimak/better-quick-notes-desktop) (Electron, notatki na `.exe`). Nie ładuj `desktop/` w Chrome. [DESKTOP.md](DESKTOP.md). |
 
 Szczegóły techniczne syncu: [SETUP_GUIDE.md](SETUP_GUIDE.md).
 

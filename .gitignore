@@ -3,7 +3,5 @@ dist/
 *.pem
 .env
 .env.*
-desktop/node_modules/
-desktop/dist/
-desktop/.snap-data/
-desktop/.snapshots/
+# Aplikacja Windows — osobne repo (better-quick-notes-desktop)
+desktop/
