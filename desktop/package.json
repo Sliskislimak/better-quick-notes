@@ -10,7 +10,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "test": "node --test test/",
+    "test": "node --test test/*.js",
     "smoke:tracker": "electron scripts/tracker-smoke.js",
     "snapshots": "electron . --user-data=.snap-data --snapshot=.snapshots",
     "build": "electron-builder --win",

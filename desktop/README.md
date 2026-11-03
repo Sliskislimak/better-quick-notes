@@ -11,9 +11,9 @@ A standalone Windows app that ports the [Quick Notes](https://github.com/quickno
 ## Requirements
 
 - Windows 10 or 11 (x64)
-- Node.js 20.12 or newer, npm 10
+- Node.js **22.12+** (or current 22 LTS), npm 10+
 
-The project pins **Electron 39**. Electron 40+ needs Node ≥ 22.12 just to install (its downloader is ESM-only), so if you upgrade Node you can also bump `electron` in `package.json`.
+This repo targets **Electron 40+** (see `package.json`). Older Node 20 cannot install recent Electron packages; use Node 22 as installed via `winget install OpenJS.NodeJS.22`.
 
 ## Install and run
 
