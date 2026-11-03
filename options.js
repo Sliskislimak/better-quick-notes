@@ -482,6 +482,11 @@ async function refreshDriveUI() {
   driveAutoSync.checked = !!cfg.autoSync;
   driveInterval.value   = String(cfg.intervalMinutes || 15);
 
+  const folderInput = document.getElementById('driveFolderId');
+  if (folderInput && document.activeElement !== folderInput) {
+    folderInput.value = resp.driveFolderId || '';
+  }
+
   let bits = [];
   if (resp.driveLastSync) {
     bits.push(`Last sync: ${fmtTime(resp.driveLastSync)} (${resp.driveLastSyncDirection || '?'})`);
@@ -491,8 +496,8 @@ async function refreshDriveUI() {
   if (resp.remote) {
     if (resp.remote.error) {
       bits.push('Remote check failed: ' + resp.remote.error);
-    } else {
-      bits.push(`Drive copy: ${fmtTime(resp.remote.modifiedTime)} · ${resp.remote.size || '?'} bytes`);
+    } else if (resp.remote.folderName) {
+      bits.push('Folder: ' + resp.remote.folderName);
     }
   }
   if (resp.driveLastSyncError) {
@@ -546,13 +551,13 @@ driveSyncNowBtn.addEventListener('click', async () => {
   refreshDriveUI();
 });
 drivePushBtn.addEventListener('click', async () => {
-  if (!confirm('Push local data to Drive? This overwrites the cloud copy.')) return;
+  if (!confirm('Upload every note as a Markdown file to the Drive folder? Existing files for these notes are updated.')) return;
   driveStatus.textContent = 'Pushing…';
   await sendDrive('push');
   refreshDriveUI();
 });
 drivePullBtn.addEventListener('click', async () => {
-  if (!confirm('Pull from Drive? This OVERWRITES your local notes with the cloud copy.')) return;
+  if (!confirm('Import Markdown files from the Drive folder? Matching notes are replaced with those files. Settings and images stay on this device.')) return;
   driveStatus.textContent = 'Pulling…';
   await sendDrive('pull');
   refreshDriveUI();
@@ -567,7 +572,129 @@ driveInterval.addEventListener('change', async () => {
   refreshDriveUI();
 });
 
+const driveFolderInput = document.getElementById('driveFolderId');
+const driveFolderStatus = document.getElementById('driveFolderStatus');
+
+document.getElementById('driveFolderSave').addEventListener('click', async () => {
+  const id = driveFolderInput.value.trim();
+  await chrome.storage.local.set({ driveFolderId: id, driveLastSyncError: null });
+  driveFolderStatus.textContent = id
+    ? 'Folder ID saved. Use Test connection to confirm this app can see it.'
+    : 'Folder ID cleared. Drive uploads are skipped until one is set.';
+  refreshDriveUI();
+});
+
+document.getElementById('driveFolderTest').addEventListener('click', async () => {
+  const id = driveFolderInput.value.trim();
+  if (!id) {
+    driveFolderStatus.textContent = 'Enter a folder ID first, or create a folder with the button below.';
+    return;
+  }
+  driveFolderStatus.textContent = 'Testing…';
+  const resp = await sendDrive('testFolder', { folderId: id });
+  if (resp.ok) {
+    driveFolderInput.value = resp.id || id;
+    await chrome.storage.local.set({ driveFolderId: resp.id || id });
+    driveFolderStatus.textContent = 'Connected to folder "' + (resp.name || id) + '".';
+  } else {
+    driveFolderStatus.textContent = resp.error || 'Test failed.';
+  }
+});
+
+document.getElementById('driveFolderCreate').addEventListener('click', async () => {
+  driveFolderStatus.textContent = 'Creating folder…';
+  const resp = await sendDrive('createFolder', { name: 'Quick Notes' });
+  if (resp.ok && resp.id) {
+    driveFolderInput.value = resp.id;
+    driveFolderStatus.textContent = 'Created "' + (resp.name || 'Quick Notes') + '" and saved its ID. This folder is visible in your Drive.';
+  } else {
+    driveFolderStatus.textContent = resp.error || 'Could not create the folder. Sign in first.';
+  }
+  refreshDriveUI();
+});
+
 refreshDriveUI();
+
+// ============ Local vault folder ============
+const vaultStatusEl = document.getElementById('vaultStatus');
+let vaultHandleCache = null;
+
+function describeVault(status) {
+  if (!status || !status.configured) {
+    return 'No folder selected. Notes stay in browser storage until you choose one.';
+  }
+  const bits = ['Folder: ' + (status.name || '(unnamed)')];
+  if (status.permission === 'granted') bits.push('permission granted');
+  else bits.push('permission ' + (status.permission || 'unknown') + ' — click Reconnect folder');
+  if (status.lastWrite) bits.push('last write ' + fmtTime(status.lastWrite));
+  if (status.lastError) bits.push(status.lastError);
+  return bits.join(' · ');
+}
+
+async function refreshVaultUI() {
+  if (typeof QN_Vault === 'undefined') {
+    vaultStatusEl.textContent = 'Vault helper failed to load.';
+    return;
+  }
+  const status = await QN_Vault.getStatus();
+  vaultHandleCache = await QN_Vault.getHandle();
+  vaultStatusEl.textContent = describeVault(status);
+}
+
+document.getElementById('vaultChoose').addEventListener('click', async () => {
+  if (typeof window.showDirectoryPicker !== 'function') {
+    vaultStatusEl.textContent = 'This browser cannot pick a local folder (File System Access API is missing).';
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    vaultHandleCache = handle;
+    await QN_Vault.saveHandle(handle);
+    await refreshVaultUI();
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    vaultStatusEl.textContent = 'Could not use that folder: ' + (e && e.message || e);
+  }
+});
+
+document.getElementById('vaultReconnect').addEventListener('click', async () => {
+  const handle = vaultHandleCache || await QN_Vault.getHandle();
+  if (!handle || typeof handle.requestPermission !== 'function') {
+    vaultStatusEl.textContent = 'Choose a folder first.';
+    return;
+  }
+  try {
+    const perm = await handle.requestPermission({ mode: 'readwrite' });
+    if (perm === 'granted') {
+      await chrome.storage.local.set({ vaultLastError: null, vaultFolderName: handle.name || '' });
+    } else {
+      await chrome.storage.local.set({ vaultLastError: 'Permission was not granted (' + perm + ').' });
+    }
+  } catch (e) {
+    vaultStatusEl.textContent = 'Reconnect failed: ' + (e && e.message || e);
+    return;
+  }
+  await refreshVaultUI();
+});
+
+document.getElementById('vaultForget').addEventListener('click', async () => {
+  if (!confirm('Forget the vault folder? Markdown files already written are left on disk.')) return;
+  await QN_Vault.forgetHandle();
+  vaultHandleCache = null;
+  await refreshVaultUI();
+});
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.type !== 'vault-write-direct' || typeof QN_Vault === 'undefined') return;
+  QN_Vault.writeNote(msg.note, { fallback: false }).then((resp) => sendResponse(resp));
+  return true;
+});
+
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.vaultLastError || changes.vaultLastWrite || changes.vaultFolderName) refreshVaultUI();
+});
+
+refreshVaultUI();
 
 // Live update About version from manifest
 try {

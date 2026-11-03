@@ -61,6 +61,24 @@
   // Guard against focus-steal echoes from our own writes.
   let selfWriting = 0;
   async function storageSet(obj) {
+    if (obj && Array.isArray(obj.notes)) {
+      try {
+        const fresh = await chrome.storage.local.get(['notes', 'noteFileIds']);
+        const prev = fresh.notes || [];
+        const idMap = fresh.noteFileIds || {};
+        const byId = new Map(prev.map(n => [n.id, n]));
+        for (const n of obj.notes) {
+          const old = byId.get(n.id);
+          const meta = idMap[n.id] || {};
+          const driveFileId = meta.driveFileId || n.driveFileId || (old && old.driveFileId) || '';
+          const vaultFileName = meta.vaultFileName || n.vaultFileName || (old && old.vaultFileName) || '';
+          if (driveFileId) n.driveFileId = driveFileId;
+          else delete n.driveFileId;
+          if (vaultFileName) n.vaultFileName = vaultFileName;
+          else delete n.vaultFileName;
+        }
+      } catch { /* keep the in-memory notes if storage cannot be read */ }
+    }
     selfWriting++;
     try { await chrome.storage.local.set(obj); }
     finally {
@@ -71,7 +89,10 @@
   // ---------- Helpers ----------
   const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const activeNote = () => state.notes.find(n => n.id === state.activeId);
-  const deriveTitle = (c) => (c.split('\n')[0] || '').trim().slice(0, 40) || 'Untitled';
+  const deriveTitle = (c) => {
+    const body = noteBody(c);
+    return (body.split('\n')[0] || '').trim().slice(0, 40) || 'Untitled';
+  };
   const hashStr = (s) => {
     let h = 0;
     for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
@@ -1692,6 +1713,54 @@
     const words = t.trim() ? t.trim().split(/\s+/).length : 0;
     counterEl.textContent = `${words} words · ${chars} chars`;
   }
+  function pageContext() {
+    return {
+      title: document.title || '',
+      source: String(location.href || ''),
+      domain: String(location.hostname || ''),
+      now: new Date().toISOString()
+    };
+  }
+
+  // Frontmatter lives in the markdown string. See note-meta.js. A timestamp-only
+  // refresh is stored but not pushed back into the focused textarea.
+  function applyPageFrontmatter(raw, el) {
+    const api = globalThis.QN_NoteMeta;
+    if (!api) return raw;
+    const applied = api.applyEditorFrontmatter(raw, pageContext(), {
+      start: el ? el.selectionStart : 0,
+      end: el ? el.selectionEnd : 0
+    }, { allowCreate: true });
+    if (el && applied.touchedEditor) {
+      el.value = applied.editorValue;
+      const max = el.value.length;
+      el.selectionStart = Math.max(0, Math.min(max, applied.selectionStart));
+      el.selectionEnd = Math.max(0, Math.min(max, applied.selectionEnd));
+    }
+    return applied.markdown;
+  }
+
+  function scheduleNoteExport(n) {
+    if (!n || !n.id || !chrome.runtime || !chrome.runtime.sendMessage) return;
+    try {
+      chrome.runtime.sendMessage({
+        type: 'export-note',
+        note: {
+          id: n.id,
+          title: n.title || '',
+          content: n.content || '',
+          driveFileId: n.driveFileId || null,
+          vaultFileName: n.vaultFileName || null
+        }
+      }, () => { void chrome.runtime.lastError; });
+    } catch { /* storage autosave already finished */ }
+  }
+
+  function noteBody(content) {
+    const api = globalThis.QN_NoteMeta;
+    return api ? api.bodyOf(content || '') : (content || '');
+  }
+
   function flash(msg) {
     statusEl.textContent = msg;
     statusEl.classList.add('qn-ok');
@@ -1707,16 +1776,17 @@
   async function save() {
     const n = activeNote();
     if (!n) return;
-    n.content = textarea.value;
+    n.content = applyPageFrontmatter(textarea.value, textarea);
     n.updatedAt = Date.now();
     if (!n.titleLocked) {
-      n.title = deriveTitle(textarea.value);
+      n.title = deriveTitle(n.content);
     }
     await storageSet({ notes: state.notes, activeId: state.activeId });
     renderSelector();
     updatePaneLabel();
     statusEl.textContent = 'saved ✓';
     statusEl.classList.add('qn-ok');
+    scheduleNoteExport(n);
   }
   function updatePaneLabel() {
     // Update the pane 1 select to reflect the active note's (possibly
@@ -1850,14 +1920,15 @@
     if (scope === 'all' || scope === 'notes') {
       state.notes.forEach(n => {
         const inTitle = n.title.toLowerCase().includes(lower);
-        const inContent = n.content.toLowerCase().includes(lower);
+        const inContent = noteBody(n.content).toLowerCase().includes(lower);
         if (inTitle || inContent) {
           let snippet = n.title;
           if (inContent) {
-            const idx = n.content.toLowerCase().indexOf(lower);
+            const body = noteBody(n.content);
+            const idx = body.toLowerCase().indexOf(lower);
             const start = Math.max(0, idx - 30);
-            const end = Math.min(n.content.length, idx + q.length + 70);
-            snippet = (start > 0 ? '…' : '') + n.content.slice(start, end) + (end < n.content.length ? '…' : '');
+            const end = Math.min(body.length, idx + q.length + 70);
+            snippet = (start > 0 ? '…' : '') + body.slice(start, end) + (end < body.length ? '…' : '');
           }
           results.push({ type: 'note', id: n.id, title: n.title, snippet, pinned: n.pinned, ts: n.updatedAt });
         }
@@ -1966,7 +2037,8 @@
 
   // ---------- Preview (markdown + checklist) ----------
   function renderPreview() {
-    const text = textarea.value;
+    const rawPreview = textarea.value;
+    const text = noteBody(rawPreview);
     const lines = text.split('\n');
     let html = '', inCode = false, inList = false, inOList = false;
     const closeList = () => {
@@ -2399,20 +2471,39 @@
     shadow.getElementById('newNote').addEventListener('click', async () => {
       await save();
       const note = { id: genId(), title: 'Untitled', content: '', updatedAt: Date.now(), pinned: false };
+      if (globalThis.QN_NoteMeta) {
+        note.content = QN_NoteMeta.upsertFrontmatter('', pageContext(), { allowCreate: true });
+      }
       state.notes.push(note);
       state.activeId = note.id;
       await storageSet({ notes: state.notes, activeId: state.activeId });
       renderSelector(); loadActiveIntoEditor();
+      if (textarea && textarea.value !== note.content) textarea.value = note.content;
+      if (textarea) {
+        const end = textarea.value.length;
+        textarea.selectionStart = textarea.selectionEnd = end;
+      }
       updatePinButton(); updateDefaultButton(); updateTagUI();
       textarea.focus();
+      scheduleNoteExport(note);
     });
     shadow.getElementById('delNote').addEventListener('click', async () => {
       if (state.notes.length === 1) {
         if (!confirm('Clear this note?')) return;
         const n = activeNote();
-        n.content = ''; n.title = 'Untitled'; n.updatedAt = Date.now();
+        n.content = globalThis.QN_NoteMeta
+          ? QN_NoteMeta.upsertFrontmatter('', pageContext(), { allowCreate: true })
+          : '';
+        n.title = 'Untitled'; n.updatedAt = Date.now();
         await storageSet({ notes: state.notes });
-        loadActiveIntoEditor(); renderSelector(); flash('cleared');
+        loadActiveIntoEditor();
+        if (textarea) {
+          textarea.value = n.content;
+          const end = textarea.value.length;
+          textarea.selectionStart = textarea.selectionEnd = end;
+        }
+        renderSelector(); flash('cleared');
+        scheduleNoteExport(n);
         return;
       }
       if (!confirm(`Delete "${activeNote().title}"?`)) return;
@@ -2910,14 +3001,15 @@
     async function savePane2() {
       const n = pane2Note();
       if (!n) return;
-      n.content = text2.value;
+      n.content = applyPageFrontmatter(text2.value, text2);
       n.updatedAt = Date.now();
       if (!n.titleLocked) {
-        n.title = deriveTitle(text2.value);
+        n.title = deriveTitle(n.content);
       }
       await storageSet({ notes: state.notes });
       renderSelector();
       renderPane1Selector(); renderPane2Selector();
+      scheduleNoteExport(n);
     }
     // Stop key events leaking out of pane 2 textarea too
     text2.addEventListener('keydown', (e) => e.stopPropagation());

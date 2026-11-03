@@ -4,7 +4,7 @@
 
 ## Summary
 
-Quick Notes is a local-first Chrome extension. By default, all your data stays on your device. Optional Google Drive sync is opt-in and uses a minimum-privilege scope that cannot access your other Drive files.
+Quick Notes is a local-first Chrome extension. By default, all your data stays on your device. Optional Google Drive sync is opt-in. It uses the `drive.file` scope, which can only see files and folders this extension created or that you opened with this app — not your Drive in general. See [SETUP_GUIDE.md](SETUP_GUIDE.md).
 
 ## What data the extension handles
 
@@ -14,6 +14,7 @@ Quick Notes handles the following data **only on your local device**, never on a
 - **History** — records of paste / selection / URL-capture operations you trigger (capped at 200 entries).
 - **Settings** — your configured themes, URL-pattern rules, per-site default notes, panel opacity, and shape preferences.
 - **Pasted page content** — if you click the "Paste clipboard," "Insert URL," or "Insert selection" buttons, the content goes into your active note.
+- **Page association** — when you create or edit a note from the floating panel, the note stores that page's document title, URL, and hostname in YAML frontmatter. The rest of the page is not read unless you use a capture button or the context menu.
 
 This data is stored in Chrome's built-in `chrome.storage.local` API, which is sandboxed per-extension and local to your browser profile.
 
@@ -28,9 +29,9 @@ This data is stored in Chrome's built-in `chrome.storage.local` API, which is sa
 
 If you **explicitly** enable Google Drive sync in the options page:
 
-- You grant the extension access to the `https://www.googleapis.com/auth/drive.appdata` scope only. This scope allows the extension to read and write files in a hidden per-app folder (the "appDataFolder") in your Google Drive. This folder is **not visible** in your regular Drive UI and cannot be accessed by any other application.
-- The extension **cannot** see, read, or modify any of your other Drive files. The `drive.appdata` scope is specifically restricted to its own sandbox.
-- Your notes, history, images, and settings are packaged as a single JSON file and uploaded to this private folder, then re-downloaded when you sync on another device.
+- You grant the extension the `https://www.googleapis.com/auth/drive.file` scope. This lets the extension create a folder and create or update Markdown files in folders it created (or that you opened with this app). It does not grant access to the rest of your Drive, and it does not use the hidden `appDataFolder`.
+- Pasting a folder ID for a folder this app did not create will fail. Create the folder from the options page so the app is allowed to use it. See [SETUP_GUIDE.md](SETUP_GUIDE.md).
+- Each note is uploaded as a Markdown file. History, settings, and image bytes stay in local storage unless you export the JSON backup yourself. The Markdown file may contain `qn-img:` references to those local images.
 - Sync frequency is configurable (manual, or every 5/15/30/60 minutes). You can sign out at any time from the options page.
 
 No other Google APIs or services are contacted.
@@ -64,7 +65,7 @@ At any time, you can export **all** your local data as a JSON file via the optio
 To delete all your Quick Notes data:
 
 - **Local**: Options page → Storage → "Reset everything." Or uninstall the extension.
-- **Google Drive (if sync was enabled)**: Options → Google Drive sync → Sign out. Then visit <https://myaccount.google.com/permissions>, find Quick Notes, and revoke access. Any files already synced to your Drive appdata folder are deleted automatically when the extension is uninstalled, or you can delete them yourself via the Drive API or reset your Google account permissions.
+- **Google Drive (if sync was enabled)**: Options → Google Drive sync → Sign out. Then visit <https://myaccount.google.com/permissions>, find Quick Notes, and revoke access. Markdown files the extension created remain in the Drive folder you chose; delete that folder yourself if you want them gone. They are not removed automatically on uninstall.
 
 ## Children's privacy
 

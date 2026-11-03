@@ -9,7 +9,7 @@
 <div class="container">
   <header>
     <h1>📝 Quick Notes · Options</h1>
-    <p class="muted">Configure auto-paste, pinned floating panel, and backup / restore.</p>
+    <p class="muted">Configure auto-paste, pinned floating panel, local vault export, Drive folder, and backup / restore.</p>
   </header>
 
   <section>
@@ -132,12 +132,44 @@
   </section>
 
   <section>
+    <h2>📁 Local vault folder</h2>
+    <p class="muted">
+      Save each note as a Markdown file in a folder you choose, such as an Obsidian vault.
+      The file name is <code>Title_noteId.md</code>, using the first 6 characters of the note id.
+      These characters in the title become hyphens: <code>&lt; &gt; : " / \ | ? *</code>.
+      A failed folder write does not affect the local autosave.
+    </p>
+    <div class="btnRow">
+      <button id="vaultChoose" class="primary">Choose folder</button>
+      <button id="vaultReconnect">Reconnect folder</button>
+      <button id="vaultForget">Forget folder</button>
+    </div>
+    <p id="vaultStatus" class="muted small"></p>
+  </section>
+
+  <section>
     <h2>☁ Google Drive sync</h2>
     <p class="muted">
-      Sync notes, history, images, and settings to your Google Drive's hidden
-      app-data folder. Invisible to you in your Drive UI; only this extension can access it.
-      Use it to back up and restore across machines.
+      Each note is uploaded as a Markdown file (<code>Title.md</code>) into a folder you choose.
+      Autosave updates that same file instead of creating another copy.
+      This no longer uses the hidden app-data folder.
+      Sign out and sign in again after updating the extension so Google grants the
+      <code>https://www.googleapis.com/auth/drive.file</code> scope.
     </p>
+    <p class="warning">
+      The folder must be accessible to this app. With the <code>drive.file</code> scope,
+      use a folder this extension created, or pick the folder with Google Picker if you add it later.
+      Pasting an arbitrary folder ID fails when this app did not create that folder.
+    </p>
+    <div class="inputRow">
+      <input id="driveFolderId" type="text" placeholder="Google Drive folder ID" spellcheck="false" autocomplete="off">
+      <button id="driveFolderSave" type="button">Save folder ID</button>
+    </div>
+    <div class="btnRow">
+      <button id="driveFolderTest" type="button">Test connection</button>
+      <button id="driveFolderCreate" type="button">Create a Quick Notes folder</button>
+    </div>
+    <p id="driveFolderStatus" class="muted small"></p>
     <div class="driveRow">
       <button id="driveSignInBtn" class="primary">Sign in with Google</button>
       <button id="driveSignOutBtn" hidden>Sign out</button>
@@ -206,6 +238,9 @@
     Quick Notes · runs locally · no telemetry. Optional Drive sync is opt-in.
   </footer>
 </div>
+<script src="note-meta.js"></script>
+<script src="sync-ids.js"></script>
+<script src="vault-sync.js"></script>
 <script src="options.js"></script>
 </body>
 </html>

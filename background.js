@@ -6,7 +6,7 @@
 //  - Command: Alt+Shift+N toggles floating panel
 //  - Google Drive sync (delegated to drive-sync.js)
 
-importScripts('drive-sync.js');
+importScripts('note-meta.js', 'sync-ids.js', 'vault-sync.js', 'drive-sync.js');
 
 const MAX_HISTORY = 200;
 
@@ -92,9 +92,20 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   const sep = active.content && !active.content.endsWith('\n') ? '\n' : '';
   active.content = (active.content || '') + sep + toAdd;
+  if (self.QN_NoteMeta) {
+    let domain = '';
+    try { domain = new URL(tab.url).hostname; } catch { domain = ''; }
+    active.content = self.QN_NoteMeta.upsertFrontmatter(active.content, {
+      title: tab.title || '',
+      source: tab.url || '',
+      domain,
+      now: new Date().toISOString()
+    }, { allowCreate: true });
+  }
   active.updatedAt = Date.now();
   if (!active.title || active.title === 'Untitled') {
-    const first = (active.content.split('\n')[0] || '').trim().slice(0, 40);
+    const body = self.QN_NoteMeta ? self.QN_NoteMeta.bodyOf(active.content) : (active.content || '');
+    const first = (body.split('\n')[0] || '').trim().slice(0, 40);
     active.title = first || 'Untitled';
   }
 
@@ -106,6 +117,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
 
   await chrome.storage.local.set({ notes, activeId, history });
+  handleExportNote(active).catch((e) => console.warn('[QuickNotes export]', e));
 
   chrome.action.setBadgeText({ text: '+' });
   chrome.action.setBadgeBackgroundColor({ color: '#2563eb' });
@@ -177,7 +189,7 @@ async function openOnTab(tab) {
 async function injectFloating(tabId) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ['content.js']
+    files: ['note-meta.js', 'content.js']
   });
 }
 
@@ -232,6 +244,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return false;
 });
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || msg.type !== 'export-note') return false;
+  handleExportNote(msg.note)
+    .then((resp) => sendResponse(resp))
+    .catch((e) => {
+      console.warn('[QuickNotes export]', e);
+      sendResponse({ ok: false, error: String(e && e.message || e) });
+    });
+  return true;
+});
+
+async function handleExportNote(note) {
+  if (!note || !note.id) return { ok: false, error: 'missing note' };
+  const out = { ok: true, vault: null, drive: null };
+  try {
+    if (self.QN_Vault) out.vault = await self.QN_Vault.writeNote(note);
+  } catch (e) {
+    console.warn('[QuickNotes Vault]', e);
+    out.vault = { ok: false, error: String(e && e.message || e) };
+  }
+  try {
+    if (self.QN_Drive && self.QN_Drive.uploadNoteMarkdown) {
+      out.drive = await self.QN_Drive.uploadNoteMarkdown(note);
+    }
+  } catch (e) {
+    console.warn('[QuickNotes Drive]', e);
+    out.drive = { ok: false, error: String(e && e.message || e) };
+  }
+  return out;
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (self.QN_Drive) self.QN_Drive.onAlarm(alarm);
 });

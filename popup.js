@@ -47,6 +47,24 @@ let saveTimer = null;
 let selfWriting = 0;
 
 async function storageSet(obj) {
+  if (obj && Array.isArray(obj.notes)) {
+    try {
+      const fresh = await chrome.storage.local.get(['notes', 'noteFileIds']);
+      const prev = fresh.notes || [];
+      const idMap = fresh.noteFileIds || {};
+      const byId = new Map(prev.map(n => [n.id, n]));
+      for (const n of obj.notes) {
+        const old = byId.get(n.id);
+        const meta = idMap[n.id] || {};
+        const driveFileId = meta.driveFileId || n.driveFileId || (old && old.driveFileId) || '';
+        const vaultFileName = meta.vaultFileName || n.vaultFileName || (old && old.vaultFileName) || '';
+        if (driveFileId) n.driveFileId = driveFileId;
+        else delete n.driveFileId;
+        if (vaultFileName) n.vaultFileName = vaultFileName;
+        else delete n.vaultFileName;
+      }
+    } catch { /* keep the in-memory notes if storage cannot be read */ }
+  }
   selfWriting++;
   try { await chrome.storage.local.set(obj); }
   finally {
@@ -60,8 +78,40 @@ async function storageSet(obj) {
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function activeNote() { return state.notes.find(n => n.id === state.activeId); }
 function deriveTitle(c) {
-  const f = (c.split('\n')[0] || '').trim().slice(0, 40);
+  const body = noteBody(c);
+  const f = (body.split('\n')[0] || '').trim().slice(0, 40);
   return f || 'Untitled';
+}
+function noteBody(content) {
+  const api = globalThis.QN_NoteMeta;
+  return api ? api.bodyOf(content || '') : (content || '');
+}
+function tabPageContext() {
+  const tab = state.currentTab;
+  if (!tab || !tab.url) return null;
+  let domain = '';
+  try { domain = new URL(tab.url).hostname; } catch { domain = ''; }
+  return {
+    title: tab.title || '',
+    source: tab.url,
+    domain,
+    now: new Date().toISOString()
+  };
+}
+function scheduleNoteExport(n) {
+  if (!n || !n.id || !chrome.runtime || !chrome.runtime.sendMessage) return;
+  try {
+    chrome.runtime.sendMessage({
+      type: 'export-note',
+      note: {
+        id: n.id,
+        title: n.title || '',
+        content: n.content || '',
+        driveFileId: n.driveFileId || null,
+        vaultFileName: n.vaultFileName || null
+      }
+    }, () => { void chrome.runtime.lastError; });
+  } catch { /* storage autosave already finished */ }
 }
 function hashStr(s) {
   let h = 0;
@@ -291,14 +341,22 @@ function scheduleSave() {
 async function save() {
   const n = activeNote();
   if (!n) return;
-  n.content = editor.value;
+  // Popup does not inject a new frontmatter block (the content script does
+  // that on the page). If a block is already in the markdown, refresh it
+  // without rewriting the textarea — see note-meta.js.
+  let next = editor.value;
+  if (globalThis.QN_NoteMeta) {
+    next = QN_NoteMeta.upsertFrontmatter(editor.value, tabPageContext(), { allowCreate: false });
+  }
+  n.content = next;
   n.updatedAt = Date.now();
   if (!n.titleLocked) {
-    n.title = deriveTitle(editor.value);
+    n.title = deriveTitle(next);
   }
   await storageSet({ notes: state.notes, activeId: state.activeId });
   renderSelector();
   statusEl.textContent = 'saved ✓';
+  scheduleNoteExport(n);
 }
 
 function insertAtCursor(text) {
@@ -932,7 +990,7 @@ $('defaultBtn').addEventListener('click', async () => {
 // Minimal markdown · headings, bold, italic, code, links, lists, blockquotes, hr.
 // Checklists are special: rendered as real checkboxes that round-trip to text.
 function renderPreview() {
-  const text = editor.value;
+  const text = noteBody(editor.value);
   const lines = text.split('\n');
   let html = '';
   let inCode = false;
@@ -1250,15 +1308,16 @@ function runSearch() {
   if (scope === 'all' || scope === 'notes') {
     state.notes.forEach(n => {
       const inTitle = n.title.toLowerCase().includes(lower);
-      const inContent = n.content.toLowerCase().includes(lower);
+      const inContent = noteBody(n.content).toLowerCase().includes(lower);
       if (inTitle || inContent) {
         // Build a snippet around the first content match
         let snippet = n.title;
         if (inContent) {
-          const idx = n.content.toLowerCase().indexOf(lower);
+          const body = noteBody(n.content);
+          const idx = body.toLowerCase().indexOf(lower);
           const start = Math.max(0, idx - 30);
-          const end = Math.min(n.content.length, idx + q.length + 70);
-          snippet = (start > 0 ? '…' : '') + n.content.slice(start, end) + (end < n.content.length ? '…' : '');
+          const end = Math.min(body.length, idx + q.length + 70);
+          snippet = (start > 0 ? '…' : '') + body.slice(start, end) + (end < body.length ? '…' : '');
         }
         results.push({
           type: 'note',

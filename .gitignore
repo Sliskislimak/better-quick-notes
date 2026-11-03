@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.pem
+.env
+.env.*
+desktop/node_modules/
+desktop/dist/
+desktop/.snap-data/
+desktop/.snapshots/
