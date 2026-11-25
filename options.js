@@ -31,7 +31,7 @@ function renderDefaults() {
   if (entries.length === 0) {
     const li = document.createElement('li');
     li.className = 'empty';
-    li.textContent = 'No per-site defaults yet. Set one with the 🎯 Default button in the popup.';
+    li.textContent = 'No per-site defaults yet. Set one with 🎯 Default in the panel (site / path / exact).';
     defaultsList.appendChild(li);
     return;
   }

@@ -33,6 +33,7 @@ Upstream: [https://github.com/quicknotes/quick-notes](https://github.com/quickno
 | **Google Drive** | Scope `https://www.googleapis.com/auth/drive.file`, upload do **skonfigurowanego folderu** (nie `appDataFolder`), `PATCH` przy kolejnych autosave, śledzenie `driveFileId`. |
 | **Opcje** | Sekcje vault + folder Drive, test połączenia, „Create a Quick Notes folder”, reconnect vaultu. |
 | **Dokumentacja** | [SETUP_GUIDE.md](SETUP_GUIDE.md) — OAuth, ID folderu, vault, klucz `manifest.key`. |
+| **URL + checklisty (1.1)** | Binding notatki i auto-float na 3 poziomach (site / path / exact), SPA watcher, poprawka toggle checklist przy YAML. |
 | **Desktop (Windows)** | Osobne repozytorium — [**better-quick-notes-desktop**](https://github.com/Sliskislimak/better-quick-notes-desktop) (Electron, notatki na `.exe`). Nie ładuj `desktop/` w Chrome. [DESKTOP.md](DESKTOP.md). |
 
 Szczegóły techniczne syncu: [SETUP_GUIDE.md](SETUP_GUIDE.md).
@@ -69,6 +70,19 @@ Szczegóły techniczne syncu: [SETUP_GUIDE.md](SETUP_GUIDE.md).
 ## Funkcje (dziedziczone z Quick Notes)
 
 - Pływający panel, autosave, wiele notatek, split view, podgląd Markdown, checklisty, tabele, obrazy/GIF, focus mode, tagi kolorów, przezroczystość, historia schowka, reguły per-URL, backup JSON, jasny/ciemny motyw.
+
+### Checklists (v1.1)
+
+W podglądzie Markdown kliknięcie wiersza `- [ ]` / `- [x]` przełącza stan, skreśla tekst i zapisuje notatkę. Indeksy linii są mapowane przez ciało notatki (po YAML frontmatter), więc checklisty działają także gdy na górze jest blok `---`.
+
+### Auto-popup per URL (v1.1)
+
+Z panelu:
+
+- **🎯 Default** — powiąż aktywną notatkę z całą witryną, ścieżką (np. `https://www.youtube.com/@kanal/*`, `…/watch?*`) albo dokładnym URL.
+- **📌 Float pin** — dodaj ten sam poziom wzorca do auto-pokazywania panelu.
+
+Przy wejściu na pasujący adres (także nawigacja SPA bez F5) panel otwiera się sam i wybiera najbardziej szczegółowy matching `siteDefaults`.
 
 ## Struktura (rozszerzenie Chrome)
 

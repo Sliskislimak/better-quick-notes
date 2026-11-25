@@ -126,6 +126,25 @@ tags:
 
 `created`, `source`, `domain`, and `title` stay as they were when the note is later edited on a different URL. On the same URL, title, source, and domain refresh from the current page. `updated` always refreshes. The editor is a raw Markdown textarea, so the block is part of `note.content` (that is what is saved, written to the vault, and uploaded). Autosave does not write a timestamp-only change back into the focused textarea, so the caret and undo stack stay put. The preview and the note title use the body under the block, not the YAML line `---`.
 
+## Checklists
+
+Preview mode renders `- [ ]` / `- [x]` / `* [ ]` / `+ [x]` as clickable rows. A click toggles the marker in `note.content`, applies strikethrough on checked items, and saves. Line indices in the preview refer to the **body** after YAML frontmatter; the toggle maps them back onto the full textarea (including the `---` block) so checklists stay correct when metadata is present.
+
+## Auto-popup per URL
+
+Settings reuse two maps:
+
+- `settings.floatingPanelSites: string[]` — URL patterns that auto-show the floating panel
+- `settings.siteDefaults: { [pattern]: noteId }` — which note to select on a matching URL
+
+From the panel toolbar, **🎯 Default** and **📌 Float pin** open a three-level menu for the current page:
+
+1. Entire site — `https://host/*`
+2. Path prefix — e.g. `https://www.youtube.com/@channel/*` or `https://www.youtube.com/watch?*`
+3. Exact URL — full `location` without `#hash`
+
+When several `siteDefaults` patterns match, the most specific pattern wins (longer literal, fewer wildcards). The background tab watcher reacts to `status=complete` and to `changeInfo.url` (SPA). The content script also watches `pushState` / `replaceState` / `popstate` so in-tab navigations update the bound note without a full reload. If the URL stops matching a float pin, the panel is left open; only the active note may change.
+
 ## What could not be verified in a browser
 
 `node test-note-meta.js` checks YAML build/parse, same-page vs other-page updates, filename sanitization, and the caret shift when a block is first inserted. `node --check` parses the extension scripts. `chrome.*`, `showDirectoryPicker`, IndexedDB handles, and the Drive HTTP API were not exercised here.

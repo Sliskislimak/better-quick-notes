@@ -40,9 +40,12 @@
     </div>
     <ul id="floatList" class="patternList"></ul>
     <p class="muted small">
-      Tip: pattern syntax uses <code>*</code> wildcards. Examples:
-      <code>*://*.example.com/*</code>, <code>https://site.com/path/*</code>.
+      Tip: pattern syntax uses <code>*</code> wildcards. Three useful levels:
+      <code>https://www.youtube.com/*</code> (whole site),
+      <code>https://www.youtube.com/@channel/*</code> or <code>https://www.youtube.com/watch?*</code> (path),
+      and a full URL without <code>#hash</code> (exact).
       Toggle a panel manually on any page with <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>.
+      SPA navigations (e.g. YouTube) re-check these patterns without a full reload.
     </p>
   </section>
 
@@ -52,6 +55,8 @@
       When the popup opens on a matching URL, this note is auto-selected.
       Use <strong>🎯 Default</strong> in the editor to bind the active note to the whole site,
       a path prefix, or an exact URL. When several patterns match, the most specific one wins.
+      Examples: <code>https://www.youtube.com/@kanal/*</code> → channel note;
+      <code>https://www.youtube.com/watch?v=VIDEO_ID</code> → one video.
     </p>
     <ul id="defaultsList" class="patternList"></ul>
   </section>
@@ -217,7 +222,7 @@
     <h2>ℹ About Quick Notes</h2>
     <div class="aboutBox">
       <p>
-        <strong>Quick Notes</strong> · v<span id="aboutVersion">1.0.0</span>
+        <strong>Quick Notes</strong> · v<span id="aboutVersion">1.1.0</span>
       </p>
       <p class="muted">
         A fast, distraction-aware note-taking extension for Chrome. Floats above any page,
