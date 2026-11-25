@@ -125,9 +125,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 // === Tab watcher: auto-show floating panel on configured URL patterns ===
+// Fires on full load (status=complete) and SPA navigations (changeInfo.url).
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status !== 'complete' || !tab.url) return;
-  if (!/^https?:/.test(tab.url)) return;
+  if (!tab.url || !/^https?:/.test(tab.url)) return;
+  if (!(changeInfo.status === 'complete' || changeInfo.url)) return;
   const { settings } = await chrome.storage.local.get('settings');
   if (!settings?.floatingPanelSites?.length) return;
   if (!matchesAny(tab.url, settings.floatingPanelSites)) return;

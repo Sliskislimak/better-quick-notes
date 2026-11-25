@@ -3593,8 +3593,97 @@
     }
   });
 
+  // ---------- URL bindings on show / SPA nav ----------
+  async function refreshSettingsFromStorage() {
+    try {
+      const d = await chrome.storage.local.get(['settings', 'notes']);
+      if (d.settings) {
+        state.settings = Object.assign(
+          { autoPasteSites: [], floatingPanelSites: [], siteDefaults: {}, lastAutoPastedHash: '' },
+          d.settings
+        );
+      }
+      if (d.notes) {
+        state.notes = d.notes;
+        state.notes.forEach(n => { if (n.pinned == null) n.pinned = false; });
+      }
+    } catch { /* keep in-memory */ }
+  }
+
+  async function applyUrlBindings() {
+    await refreshSettingsFromStorage();
+    const url = location.href;
+    const noteId = pickDefaultNoteId(url);
+    if (noteId && noteId !== state.activeId && host) {
+      try {
+        if (textarea) await save();
+      } catch { /* continue switching */ }
+      state.activeId = noteId;
+      try { await storageSet({ activeId: noteId }); } catch { /* */ }
+      if (shadow) {
+        renderSelector();
+        renderPane1Selector();
+        renderPane2Selector();
+        loadActiveIntoEditor();
+        updatePinButton();
+        updateTagUI();
+      }
+    }
+    if (shadow) {
+      updateDefaultButton();
+      updateFloatPinButton();
+    }
+  }
+
+  let spaHandling = false;
+  async function handleSpaUrlChange() {
+    if (spaHandling) return;
+    spaHandling = true;
+    try {
+      await refreshSettingsFromStorage();
+      const shouldFloat = matchesAny(location.href, state.settings.floatingPanelSites || []);
+      if (shouldFloat) {
+        if (!host) await bootstrap();
+        else await show();
+        return;
+      }
+      // URL no longer pinned for auto-float: keep panel open if visible,
+      // but still switch the active note when a siteDefault matches.
+      if (host) await applyUrlBindings();
+    } finally {
+      spaHandling = false;
+    }
+  }
+
+  function installSpaWatcher() {
+    if (window.__qnSpaWatch) return;
+    window.__qnSpaWatch = true;
+    let lastHref = location.href;
+    let debounceTimer = null;
+    const kick = () => {
+      if (location.href === lastHref) return;
+      lastHref = location.href;
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => { handleSpaUrlChange(); }, 80);
+    };
+    const wrapHistory = (method) => {
+      const orig = history[method];
+      if (typeof orig !== 'function') return;
+      history[method] = function () {
+        const ret = orig.apply(this, arguments);
+        kick();
+        return ret;
+      };
+    };
+    wrapHistory('pushState');
+    wrapHistory('replaceState');
+    window.addEventListener('popstate', kick);
+    window.addEventListener('hashchange', kick);
+    setInterval(kick, 500);
+  }
+
   // ---------- Show / hide ----------
-  function show() {
+  async function show() {
     if (!host) return;
     host.style.display = '';
     visible = true;
@@ -3604,6 +3693,7 @@
       const wrap = shadow.getElementById('wrap');
       if (wrap) applyGeometry(wrap);
     }
+    await applyUrlBindings();
     if (textarea) textarea.focus();
     maybeAutoPaste();
   }
@@ -3617,9 +3707,12 @@
     await loadState();
     buildPanel();
     visible = true;
+    await applyUrlBindings();
     if (textarea) textarea.focus();
     maybeAutoPaste();
   }
+
+  installSpaWatcher();
 
   // ---------- Message router ----------
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -3637,8 +3730,7 @@
       if (!host) {
         bootstrap().then(() => recenterPanel());
       } else {
-        show();
-        recenterPanel();
+        show().then(() => recenterPanel());
       }
     }
     sendResponse && sendResponse({ ok: true });
