@@ -40,6 +40,17 @@ Szczegóły techniczne syncu: [SETUP_GUIDE.md](SETUP_GUIDE.md).
 
 ---
 
+## Release 1.1.0 — checklisty + popup per URL
+
+Po **Reload** rozszerzenia na `chrome://extensions` i odświeżeniu kart:
+
+1. Notatka z YAML + `- [ ]` → podgląd → klik wiersza → stan `[x]`, skreślenie, po reloadzie strony stan zostaje.
+2. Na YouTube: 🎯 → path kanału vs exact filmu → różne notatki.
+3. 📌 Float pin → wejście na URL → panel sam się otwiera z właściwą notatką.
+4. Nawigacja SPA (film → inny film) bez F5 aktualizuje binding.
+
+Paczka źródłowa (bez `.git`): `better-quick-notes-1.1.0.zip` w katalogu projektu (lokalnie / Release na GitHub).
+
 ## Instalacja w Chrome (wersja z repozytorium)
 
 1. **Pobierz kod** — sklonuj repo albo pobierz ZIP i rozpakuj.

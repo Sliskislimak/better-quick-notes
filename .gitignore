@@ -3,5 +3,7 @@ dist/
 *.pem
 .env
 .env.*
+*.zip
+_smoke_e5.js
 # Aplikacja Windows — osobne repo (better-quick-notes-desktop)
 desktop/
