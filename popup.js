@@ -234,6 +234,7 @@ async function load() {
   renderSelector();
   loadActive();
   updateDefaultButton();
+  updateFloatPinButton();
   updatePinButton();
   updateTagUI();
   editor.focus();
@@ -269,16 +270,71 @@ function updateTagUI() {
   }
 }
 
+function urlBindingChoices(url) {
+  try {
+    const u = new URL(url);
+    if (!/^https?:$/.test(u.protocol)) return [];
+    const origin = `${u.protocol}//${u.host}`;
+    const choices = [];
+    const sitePat = `${origin}/*`;
+    choices.push({
+      id: 'site',
+      pattern: sitePat,
+      label: 'Cała witryna',
+      labelEn: 'Entire site',
+      hint: sitePat
+    });
+    const segs = (u.pathname || '/').split('/').filter(Boolean);
+    if (segs.length >= 1) {
+      const first = '/' + segs[0];
+      const pathPat = (segs.length === 1 && u.search)
+        ? `${origin}${first}?*`
+        : `${origin}${first}/*`;
+      if (pathPat !== sitePat) {
+        choices.push({
+          id: 'path',
+          pattern: pathPat,
+          label: 'Ta ścieżka i podścieżki',
+          labelEn: 'This path & subpaths',
+          hint: pathPat
+        });
+      }
+    }
+    const exact = `${origin}${u.pathname || '/'}${u.search || ''}`;
+    if (!choices.some(c => c.pattern === exact)) {
+      choices.push({
+        id: 'exact',
+        pattern: exact,
+        label: 'Dokładny adres',
+        labelEn: 'Exact URL',
+        hint: exact.length > 64 ? exact.slice(0, 61) + '…' : exact
+      });
+    }
+    return choices;
+  } catch { return []; }
+}
+
+function patternSpecificity(pattern) {
+  if (!pattern) return -1;
+  const wildcards = (String(pattern).match(/\*/g) || []).length;
+  return String(pattern).length * 10 - wildcards * 100;
+}
+
 function pickDefaultNoteId(url) {
   if (!url) return null;
   const map = state.settings.siteDefaults || {};
-  // Find the first matching pattern whose noteId still exists
+  let bestId = null;
+  let bestScore = -Infinity;
   for (const [pat, noteId] of Object.entries(map)) {
-    if (matchPattern(url, pat) && state.notes.some(n => n.id === noteId)) {
-      return noteId;
+    if (!matchPattern(url, pat)) continue;
+    if (!state.notes.some(n => n.id === noteId)) continue;
+    const score = patternSpecificity(pat);
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = noteId;
     }
   }
-  return null;
+  return bestId;
 }
 
 async function maybeAutoPaste() {
@@ -479,6 +535,7 @@ noteSelect.addEventListener('change', async () => {
   loadActive();
   updatePinButton();
   updateDefaultButton();
+  updateFloatPinButton();
   updateTagUI();
   editor.focus();
 });
@@ -490,7 +547,7 @@ $('newNote').addEventListener('click', async () => {
   state.activeId = note.id;
   await storageSet({ notes: state.notes, activeId: state.activeId });
   renderSelector(); loadActive();
-  updatePinButton(); updateDefaultButton(); updateTagUI();
+  updatePinButton(); updateDefaultButton(); updateFloatPinButton(); updateTagUI();
   editor.focus();
 });
 
@@ -517,7 +574,7 @@ $('deleteNote').addEventListener('click', async () => {
     notes: state.notes, activeId: state.activeId, settings: state.settings
   });
   renderSelector(); loadActive();
-  updatePinButton(); updateDefaultButton(); updateTagUI();
+  updatePinButton(); updateDefaultButton(); updateFloatPinButton(); updateTagUI();
   flash('deleted');
 });
 
@@ -971,47 +1028,184 @@ $('floatBtn').addEventListener('click', async () => {
   } catch { flash('not available here'); }
 });
 
-// ============ Per-site default note ============
+// ============ Per-site default note + float pin ============
+function currentTabUrl() {
+  return state.currentTab?.url || null;
+}
+
 function currentSitePattern() {
-  if (!state.currentTab?.url) return null;
+  const url = currentTabUrl();
+  if (!url) return null;
   try {
-    const u = new URL(state.currentTab.url);
+    const u = new URL(url);
     return `${u.protocol}//${u.host}/*`;
   } catch { return null; }
 }
 
 function currentSiteIsDefault() {
-  const pat = currentSitePattern();
-  if (!pat) return false;
-  return state.settings.siteDefaults?.[pat] === state.activeId;
+  const url = currentTabUrl();
+  return !!(url && pickDefaultNoteId(url) === state.activeId);
+}
+
+function currentFloatPinned() {
+  const url = currentTabUrl();
+  if (!url) return false;
+  const pats = state.settings.floatingPanelSites || [];
+  return urlBindingChoices(url).some(c => pats.includes(c.pattern));
 }
 
 function updateDefaultButton() {
   const btn = $('defaultBtn');
-  const applicable = !!currentSitePattern();
+  if (!btn) return;
+  const choices = urlBindingChoices(currentTabUrl());
+  const applicable = choices.length > 0;
   btn.disabled = !applicable;
   btn.style.opacity = applicable ? '1' : '0.5';
   btn.classList.toggle('active', applicable && currentSiteIsDefault());
   btn.title = applicable
     ? (currentSiteIsDefault()
-      ? 'This note is the default for this site (click to remove)'
-      : 'Set this note as default for this site')
+      ? 'This note is bound to this URL (click for site / path / exact)'
+      : 'Bind this note to site / path / exact URL')
     : 'Not available on this page';
 }
 
-$('defaultBtn').addEventListener('click', async () => {
-  const pat = currentSitePattern();
-  if (!pat) return flash('no site');
-  state.settings.siteDefaults = state.settings.siteDefaults || {};
-  if (state.settings.siteDefaults[pat] === state.activeId) {
-    delete state.settings.siteDefaults[pat];
-    flash('default removed');
-  } else {
-    state.settings.siteDefaults[pat] = state.activeId;
-    flash(`default set for ${new URL(state.currentTab.url).host}`);
+function updateFloatPinButton() {
+  const btn = $('floatPinBtn');
+  if (!btn) return;
+  const choices = urlBindingChoices(currentTabUrl());
+  const applicable = choices.length > 0;
+  btn.disabled = !applicable;
+  btn.style.opacity = applicable ? '1' : '0.5';
+  btn.classList.toggle('active', applicable && currentFloatPinned());
+  btn.title = applicable
+    ? (currentFloatPinned()
+      ? 'Auto-float pinned for this URL (click to change)'
+      : 'Auto-show floating panel on site / path / exact URL')
+    : 'Not available on this page';
+}
+
+function openBindMenu(anchorBtn, { title, items, dangerItem }) {
+  document.querySelectorAll('.bindMenu').forEach(el => el.remove());
+  const menu = document.createElement('div');
+  menu.className = 'bindMenu';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'bind-title';
+  titleEl.textContent = title;
+  menu.appendChild(titleEl);
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    if (item.active) btn.classList.add('active');
+    btn.innerHTML = `<span class="bind-label">${item.active ? '✓ ' : ''}${escapeHtml(item.label)}</span>` +
+      `<span class="bind-hint">${escapeHtml(item.hint || item.pattern || '')}</span>`;
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      menu.remove();
+      await item.onSelect();
+    });
+    menu.appendChild(btn);
+  });
+  if (dangerItem) {
+    const sep = document.createElement('div');
+    sep.className = 'bind-sep';
+    menu.appendChild(sep);
+    const btn = document.createElement('button');
+    btn.innerHTML = `<span class="bind-label">${escapeHtml(dangerItem.label)}</span>`;
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      menu.remove();
+      await dangerItem.onSelect();
+    });
+    menu.appendChild(btn);
   }
-  await storageSet({ settings: state.settings });
-  updateDefaultButton();
+  const frame = document.getElementById('shapeFrame');
+  (frame || document.body).appendChild(menu);
+  setTimeout(() => {
+    const dismiss = (ev) => {
+      if (!menu.contains(ev.target) && ev.target !== anchorBtn) {
+        menu.remove();
+        document.removeEventListener('click', dismiss);
+      }
+    };
+    document.addEventListener('click', dismiss);
+  }, 0);
+  return menu;
+}
+
+$('defaultBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const existing = document.querySelector('.bindMenu');
+  if (existing) { existing.remove(); return; }
+  const url = currentTabUrl();
+  const choices = urlBindingChoices(url);
+  if (!choices.length || !state.activeId) return flash('no site');
+  const map = state.settings.siteDefaults = state.settings.siteDefaults || {};
+  openBindMenu($('defaultBtn'), {
+    title: 'Default note binding',
+    items: choices.map(c => ({
+      label: c.label,
+      hint: c.hint,
+      pattern: c.pattern,
+      active: map[c.pattern] === state.activeId,
+      onSelect: async () => {
+        if (map[c.pattern] === state.activeId) {
+          delete map[c.pattern];
+          flash('binding removed');
+        } else {
+          map[c.pattern] = state.activeId;
+          flash(`default: ${c.id}`);
+        }
+        await storageSet({ settings: state.settings });
+        updateDefaultButton();
+        updateFloatPinButton();
+      }
+    })),
+    dangerItem: {
+      label: 'Usuń binding tej notatki',
+      onSelect: async () => {
+        let removed = 0;
+        for (const c of choices) {
+          if (map[c.pattern] === state.activeId) {
+            delete map[c.pattern];
+            removed++;
+          }
+        }
+        await storageSet({ settings: state.settings });
+        updateDefaultButton();
+        flash(removed ? 'bindings removed' : 'no bindings');
+      }
+    }
+  });
+});
+
+$('floatPinBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const existing = document.querySelector('.bindMenu');
+  if (existing) { existing.remove(); return; }
+  const url = currentTabUrl();
+  const choices = urlBindingChoices(url);
+  if (!choices.length) return flash('no site');
+  const list = state.settings.floatingPanelSites = state.settings.floatingPanelSites || [];
+  openBindMenu($('floatPinBtn'), {
+    title: 'Auto-float panel',
+    items: choices.map(c => ({
+      label: c.label,
+      hint: c.hint,
+      pattern: c.pattern,
+      active: list.includes(c.pattern),
+      onSelect: async () => {
+        const idx = list.indexOf(c.pattern);
+        if (idx >= 0) {
+          list.splice(idx, 1);
+          flash('float pin removed');
+        } else {
+          list.push(c.pattern);
+          flash(`float pin: ${c.id}`);
+        }
+        await storageSet({ settings: state.settings });
+        updateFloatPinButton();
+      }
+    }))
+  });
 });
 
 // ============ Markdown / checklist preview ============
@@ -1414,6 +1608,7 @@ function runSearch() {
         loadActive();
         updatePinButton();
         updateDefaultButton();
+        updateFloatPinButton();
         updateTagUI();
         searchView.hidden = true;
         editorView.hidden = false;
@@ -1462,6 +1657,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.settings) {
     state.settings = Object.assign(state.settings, changes.settings.newValue || {});
     updateDefaultButton();
+    updateFloatPinButton();
   }
   if (changes.shape) {
     state.shape = changes.shape.newValue || 'rectangle';

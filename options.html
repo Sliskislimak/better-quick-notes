@@ -29,7 +29,10 @@
     <h2>🪟 Floating panel · pinned sites</h2>
     <p class="muted">
       On matching URLs, the floating Quick Notes panel auto-shows when the page finishes loading.
-      You can also pin/unpin the current page directly from the panel's 📌 button.
+      From the panel, use the <strong>📌 Float pin</strong> button and choose a level:
+      entire site (<code>https://host/*</code>), path prefix
+      (<code>https://www.youtube.com/@channel/*</code> or <code>…/watch?*</code>),
+      or the exact URL.
     </p>
     <div class="inputRow">
       <input id="floatInput" type="text" placeholder="*://docs.google.com/*">
@@ -47,7 +50,8 @@
     <h2>🎯 Per-site default notes</h2>
     <p class="muted">
       When the popup opens on a matching URL, this note is auto-selected.
-      Set/unset a default directly from the editor via the <strong>🎯 Default</strong> button.
+      Use <strong>🎯 Default</strong> in the editor to bind the active note to the whole site,
+      a path prefix, or an exact URL. When several patterns match, the most specific one wins.
     </p>
     <ul id="defaultsList" class="patternList"></ul>
   </section>

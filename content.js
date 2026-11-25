@@ -178,13 +178,87 @@
     state.activeId = perSite || storedActive;
   }
 
+  function urlBindingChoices(url) {
+    try {
+      const u = new URL(url);
+      if (!/^https?:$/.test(u.protocol)) return [];
+      const origin = `${u.protocol}//${u.host}`;
+      const choices = [];
+      const sitePat = `${origin}/*`;
+      choices.push({
+        id: 'site',
+        pattern: sitePat,
+        label: 'Cała witryna',
+        labelEn: 'Entire site',
+        hint: sitePat
+      });
+      const segs = (u.pathname || '/').split('/').filter(Boolean);
+      if (segs.length >= 1) {
+        const first = '/' + segs[0];
+        const pathPat = (segs.length === 1 && u.search)
+          ? `${origin}${first}?*`
+          : `${origin}${first}/*`;
+        if (pathPat !== sitePat) {
+          choices.push({
+            id: 'path',
+            pattern: pathPat,
+            label: 'Ta ścieżka i podścieżki',
+            labelEn: 'This path & subpaths',
+            hint: pathPat
+          });
+        }
+      }
+      const exact = `${origin}${u.pathname || '/'}${u.search || ''}`;
+      if (!choices.some(c => c.pattern === exact)) {
+        choices.push({
+          id: 'exact',
+          pattern: exact,
+          label: 'Dokładny adres',
+          labelEn: 'Exact URL',
+          hint: exact.length > 64 ? exact.slice(0, 61) + '…' : exact
+        });
+      }
+      return choices;
+    } catch { return []; }
+  }
+
+  function patternSpecificity(pattern) {
+    if (!pattern) return -1;
+    const wildcards = (String(pattern).match(/\*/g) || []).length;
+    return String(pattern).length * 10 - wildcards * 100;
+  }
+
   function pickDefaultNoteId(url) {
     if (!url) return null;
     const map = state.settings.siteDefaults || {};
+    let bestId = null;
+    let bestScore = -Infinity;
     for (const [pat, noteId] of Object.entries(map)) {
-      if (matchPattern(url, pat) && state.notes.some(n => n.id === noteId)) return noteId;
+      if (!matchPattern(url, pat)) continue;
+      if (!state.notes.some(n => n.id === noteId)) continue;
+      const score = patternSpecificity(pat);
+      if (score > bestScore) {
+        bestScore = score;
+        bestId = noteId;
+      }
     }
-    return null;
+    return bestId;
+  }
+
+  function mostSpecificBoundPattern(url, noteId) {
+    const map = state.settings.siteDefaults || {};
+    let best = null;
+    let bestScore = -Infinity;
+    for (const [pat, id] of Object.entries(map)) {
+      if (noteId && id !== noteId) continue;
+      if (!matchPattern(url, pat)) continue;
+      const score = patternSpecificity(pat);
+      if (score > bestScore) {
+        bestScore = score;
+        best = pat;
+      }
+    }
+    return best;
   }
 
   // ---------- Build DOM ----------
@@ -619,6 +693,63 @@
     z-index: 30;
     display: flex;
     gap: 6px;
+  }
+
+  /* URL binding menu (default note / float pin levels) */
+  .qn-bind-menu {
+    position: absolute;
+    top: 78px;
+    right: 12px;
+    min-width: 240px;
+    max-width: 320px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+    box-shadow: var(--shadow);
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .qn-bind-menu .qn-bind-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 4px 8px 6px;
+  }
+  .qn-bind-menu button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--fg);
+    padding: 7px 8px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+  }
+  .qn-bind-menu button:hover { background: var(--row-hover); }
+  .qn-bind-menu button.qn-active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .qn-bind-menu button .qn-bind-label { font-weight: 600; }
+  .qn-bind-menu button .qn-bind-hint {
+    font-size: 10px;
+    color: var(--muted);
+    word-break: break-all;
+  }
+  .qn-bind-menu .qn-bind-sep {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 2px;
   }
   .qn-tag-swatch {
     width: 24px;
@@ -1224,7 +1355,8 @@
         </div>
         <div class="qn-bar-sep"></div>
         <div class="qn-bar-group">
-          <button class="qn-btn" id="defaultBtn" title="Set as default note for this site">${svgIcon('target')}</button>
+          <button class="qn-btn" id="defaultBtn" title="Bind this note to site / path / exact URL">${svgIcon('target')}</button>
+          <button class="qn-btn" id="floatPinBtn" title="Auto-show floating panel on site / path / exact URL">${svgIcon('floatPin')}</button>
           <button class="qn-btn" id="dlBtn" title="Download note as .txt">${svgIcon('download')}</button>
         </div>
         <div class="qn-bar-sep"></div>
@@ -1345,6 +1477,7 @@
     updatePaneLabel();
     updatePinButton();
     updateDefaultButton();
+    updateFloatPinButton();
     updateTagUI();
     observePanelSize(wrap);
   }
@@ -1600,6 +1733,7 @@
       check: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12l2 2 4-4"/>',
       eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
       target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/>',
+      floatPin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3H7l3-3-1-6z"/><circle cx="19" cy="5" r="3" fill="currentColor" stroke="none"/>',
       download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
       shape: '<polygon points="12,3 21,20 3,20" />',
       sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
@@ -1996,7 +2130,7 @@
           state.activeId = r.id;
           await storageSet({ activeId: state.activeId });
           renderSelector(); loadActiveIntoEditor();
-          updatePinButton(); updateDefaultButton(); updateTagUI();
+          updatePinButton(); updateDefaultButton(); updateFloatPinButton(); updateTagUI();
           switchView('editor');
         } else {
           switchView('editor');
@@ -2285,18 +2419,86 @@
     catch { return null; }
   }
   function currentSiteIsDefault() {
-    const pat = currentSitePattern();
-    return pat && state.settings.siteDefaults?.[pat] === state.activeId;
+    return pickDefaultNoteId(location.href) === state.activeId;
   }
   function updateDefaultButton() {
     const btn = shadow.getElementById('defaultBtn');
     if (!btn) return;
-    const pat = currentSitePattern();
-    btn.classList.toggle('qn-active', pat && currentSiteIsDefault());
-    btn.title = pat ? (currentSiteIsDefault()
-      ? 'This note is default for this site (click to remove)'
-      : 'Set as default for this site')
+    const choices = urlBindingChoices(location.href);
+    const active = !!choices.length && currentSiteIsDefault();
+    btn.classList.toggle('qn-active', active);
+    btn.title = choices.length
+      ? (active
+        ? 'This note is bound to this URL (click for site / path / exact)'
+        : 'Bind this note to site / path / exact URL')
       : 'Not available here';
+  }
+  function currentFloatPinned() {
+    const pats = state.settings.floatingPanelSites || [];
+    return urlBindingChoices(location.href).some(c => pats.includes(c.pattern));
+  }
+  function updateFloatPinButton() {
+    const btn = shadow.getElementById('floatPinBtn');
+    if (!btn) return;
+    const choices = urlBindingChoices(location.href);
+    const active = !!choices.length && currentFloatPinned();
+    btn.classList.toggle('qn-active', active);
+    btn.title = choices.length
+      ? (active
+        ? 'Auto-float pinned for this URL (click to change)'
+        : 'Auto-show floating panel on site / path / exact URL')
+      : 'Not available here';
+  }
+
+  function dismissBindMenus() {
+    if (!shadow) return;
+    shadow.querySelectorAll('.qn-bind-menu').forEach(el => el.remove());
+  }
+
+  function openBindMenu({ title, items, dangerItem }) {
+    dismissBindMenus();
+    const menu = document.createElement('div');
+    menu.className = 'qn-bind-menu';
+    const titleEl = document.createElement('div');
+    titleEl.className = 'qn-bind-title';
+    titleEl.textContent = title;
+    menu.appendChild(titleEl);
+    items.forEach(item => {
+      const btn = document.createElement('button');
+      if (item.active) btn.classList.add('qn-active');
+      btn.innerHTML = `<span class="qn-bind-label">${item.active ? '✓ ' : ''}${escapeHtml(item.label)}</span>` +
+        `<span class="qn-bind-hint">${escapeHtml(item.hint || item.pattern || '')}</span>`;
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        menu.remove();
+        await item.onSelect();
+      });
+      menu.appendChild(btn);
+    });
+    if (dangerItem) {
+      const sep = document.createElement('div');
+      sep.className = 'qn-bind-sep';
+      menu.appendChild(sep);
+      const btn = document.createElement('button');
+      btn.innerHTML = `<span class="qn-bind-label">${escapeHtml(dangerItem.label)}</span>`;
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        menu.remove();
+        await dangerItem.onSelect();
+      });
+      menu.appendChild(btn);
+    }
+    shadow.getElementById('paper').appendChild(menu);
+    setTimeout(() => {
+      const dismiss = (ev) => {
+        if (!ev.composedPath().includes(menu)) {
+          menu.remove();
+          document.removeEventListener('click', dismiss);
+        }
+      };
+      document.addEventListener('click', dismiss);
+    }, 0);
+    return menu;
   }
 
   // ---------- Auto-paste ----------
@@ -2496,7 +2698,7 @@
       await storageSet({ activeId: state.activeId });
       renderSelector();
       loadActiveIntoEditor();
-      updatePinButton(); updateDefaultButton(); updateTagUI();
+      updatePinButton(); updateDefaultButton(); updateFloatPinButton(); updateTagUI();
     });
     shadow.getElementById('newNote').addEventListener('click', async () => {
       await save();
@@ -2513,7 +2715,7 @@
         const end = textarea.value.length;
         textarea.selectionStart = textarea.selectionEnd = end;
       }
-      updatePinButton(); updateDefaultButton(); updateTagUI();
+      updatePinButton(); updateDefaultButton(); updateFloatPinButton(); updateTagUI();
       textarea.focus();
       scheduleNoteExport(note);
     });
@@ -2547,7 +2749,7 @@
       state.activeId = state.notes[0].id;
       await storageSet({ notes: state.notes, activeId: state.activeId, settings: state.settings });
       renderSelector(); loadActiveIntoEditor();
-      updatePinButton(); updateDefaultButton(); updateTagUI();
+      updatePinButton(); updateDefaultButton(); updateFloatPinButton(); updateTagUI();
       flash('deleted');
     });
     shadow.getElementById('pinNote').addEventListener('click', async () => {
@@ -2929,20 +3131,79 @@
       renderPreview();
       await save();
     });
-    shadow.getElementById('defaultBtn').addEventListener('click', async () => {
-      const pat = currentSitePattern();
-      if (!pat) return flash('no site');
-      state.settings.siteDefaults = state.settings.siteDefaults || {};
-      if (state.settings.siteDefaults[pat] === state.activeId) {
-        delete state.settings.siteDefaults[pat];
-        flash('default removed');
-      } else {
-        state.settings.siteDefaults[pat] = state.activeId;
-        try { flash(`default set: ${new URL(location.href).host}`); }
-        catch { flash('default set'); }
-      }
-      await storageSet({ settings: state.settings });
-      updateDefaultButton();
+    shadow.getElementById('defaultBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const existing = shadow.querySelector('.qn-bind-menu');
+      if (existing) { existing.remove(); return; }
+      const choices = urlBindingChoices(location.href);
+      if (!choices.length || !state.activeId) return flash('no site');
+      const map = state.settings.siteDefaults = state.settings.siteDefaults || {};
+      openBindMenu({
+        title: 'Default note binding',
+        items: choices.map(c => ({
+          label: c.label,
+          hint: c.hint,
+          pattern: c.pattern,
+          active: map[c.pattern] === state.activeId,
+          onSelect: async () => {
+            if (map[c.pattern] === state.activeId) {
+              delete map[c.pattern];
+              flash('binding removed');
+            } else {
+              map[c.pattern] = state.activeId;
+              flash(`default: ${c.id}`);
+            }
+            await storageSet({ settings: state.settings });
+            updateDefaultButton();
+            updateFloatPinButton();
+          }
+        })),
+        dangerItem: {
+          label: 'Usuń binding tej notatki',
+          onSelect: async () => {
+            let removed = 0;
+            for (const c of choices) {
+              if (map[c.pattern] === state.activeId) {
+                delete map[c.pattern];
+                removed++;
+              }
+            }
+            await storageSet({ settings: state.settings });
+            updateDefaultButton();
+            flash(removed ? 'bindings removed' : 'no bindings');
+          }
+        }
+      });
+    });
+
+    shadow.getElementById('floatPinBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const existing = shadow.querySelector('.qn-bind-menu');
+      if (existing) { existing.remove(); return; }
+      const choices = urlBindingChoices(location.href);
+      if (!choices.length) return flash('no site');
+      const list = state.settings.floatingPanelSites = state.settings.floatingPanelSites || [];
+      openBindMenu({
+        title: 'Auto-float panel',
+        items: choices.map(c => ({
+          label: c.label,
+          hint: c.hint,
+          pattern: c.pattern,
+          active: list.includes(c.pattern),
+          onSelect: async () => {
+            const idx = list.indexOf(c.pattern);
+            if (idx >= 0) {
+              list.splice(idx, 1);
+              flash('float pin removed');
+            } else {
+              list.push(c.pattern);
+              flash(`float pin: ${c.id}`);
+            }
+            await storageSet({ settings: state.settings });
+            updateFloatPinButton();
+          }
+        }))
+      });
     });
     shadow.getElementById('dlBtn').addEventListener('click', () => {
       const n = activeNote(); if (!n) return;
@@ -2997,6 +3258,7 @@
       loadPane2IntoEditor();
       updatePinButton();
       updateDefaultButton();
+      updateFloatPinButton();
       updateTagUI();
       flash('swapped');
     });
@@ -3010,7 +3272,7 @@
       renderSelector();
       renderPane1Selector();
       loadActiveIntoEditor();
-      updatePinButton(); updateDefaultButton(); updateTagUI();
+      updatePinButton(); updateDefaultButton(); updateFloatPinButton(); updateTagUI();
     });
 
     // Pane 2 note selector
@@ -3276,6 +3538,7 @@
     if (changes.settings) {
       state.settings = Object.assign(state.settings, changes.settings.newValue || {});
       updateDefaultButton();
+      updateFloatPinButton();
     }
     if (changes.theme && shadow) {
       state.theme = changes.theme.newValue || state.theme;

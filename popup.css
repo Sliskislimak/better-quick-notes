@@ -620,6 +620,63 @@ input[type="range"].opacity-slider::-moz-range-thumb {
   font-variant-numeric: tabular-nums;
 }
 
+/* ===== URL binding menu (default / float pin) ===== */
+.bindMenu {
+  position: absolute;
+  top: 86px;
+  right: 12px;
+  min-width: 240px;
+  max-width: 320px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: var(--shadow);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bindMenu .bind-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 4px 8px 6px;
+}
+.bindMenu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 7px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.bindMenu button:hover { background: var(--row-hover); }
+.bindMenu button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.bindMenu button .bind-label { font-weight: 600; }
+.bindMenu button .bind-hint {
+  font-size: 10px;
+  color: var(--muted);
+  word-break: break-all;
+}
+.bindMenu .bind-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 2px;
+}
+
 /* ===== Color tag picker ===== */
 .tagMenu {
   position: absolute;
