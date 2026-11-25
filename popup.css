@@ -416,6 +416,7 @@ svg.ico {
   cursor: pointer;
   accent-color: var(--accent);
   flex-shrink: 0;
+  pointer-events: none;
 }
 .preview .chk-line.done .txt {
   text-decoration: line-through;

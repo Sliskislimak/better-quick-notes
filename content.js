@@ -977,7 +977,9 @@
     margin-top: 4px;
     cursor: pointer;
     accent-color: var(--accent);
+    pointer-events: none;
   }
+  .qn-preview .chk-line .txt { flex: 1; word-break: break-word; }
   .qn-preview .chk-line.done .txt {
     text-decoration: line-through;
     color: var(--muted);
@@ -1761,6 +1763,34 @@
     return api ? api.bodyOf(content || '') : (content || '');
   }
 
+  // Preview checklist lines are indexed in body-only space (after YAML).
+  // Map that index onto the full textarea content when toggling.
+  const CHK_RE = /^(\s*)[-*+] \[( |x|X)\] (.*)$/;
+  const CHK_TOGGLE_RE = /^(\s*[-*+] \[)( |x|X)(\].*)$/;
+
+  function bodyLineOffset(content) {
+    const api = globalThis.QN_NoteMeta;
+    if (!api || !api.splitFrontmatter) return 0;
+    const split = api.splitFrontmatter(content || '');
+    if (!split || split.incomplete) return 0;
+    const full = String(content || '');
+    const body = split.body == null ? '' : String(split.body);
+    const prefix = full.slice(0, Math.max(0, full.length - body.length));
+    if (!prefix) return 0;
+    return (prefix.match(/\n/g) || []).length;
+  }
+
+  function toggleCheckInContent(content, bodyLineIdx) {
+    const offset = bodyLineOffset(content);
+    const lines = String(content || '').split('\n');
+    const fullIdx = offset + bodyLineIdx;
+    if (fullIdx < 0 || fullIdx >= lines.length) return content;
+    const m = lines[fullIdx].match(CHK_TOGGLE_RE);
+    if (!m) return content;
+    lines[fullIdx] = m[1] + (m[2].toLowerCase() === 'x' ? ' ' : 'x') + m[3];
+    return lines.join('\n');
+  }
+
   function flash(msg) {
     statusEl.textContent = msg;
     statusEl.classList.add('qn-ok');
@@ -2178,12 +2208,12 @@
           continue;
         }
       }
-      const chk = line.match(/^(\s*)[-*] \[( |x|X)\] (.*)$/);
+      const chk = line.match(CHK_RE);
       if (chk) {
         closeList();
         const checked = chk[2].toLowerCase() === 'x';
         html += `<label class="chk-line ${checked ? 'done' : ''}" data-line="${idx}">
-          <input type="checkbox" ${checked ? 'checked' : ''} data-line="${idx}">
+          <input type="checkbox" ${checked ? 'checked' : ''} data-line="${idx}" tabindex="-1">
           <span class="txt">${inline(chk[3])}</span>
         </label>`;
         continue;
@@ -2886,16 +2916,18 @@
       }
     });
     previewEl.addEventListener('click', async (e) => {
-      const cb = e.target.closest('input[type="checkbox"][data-line]');
-      if (!cb) return;
-      const idx = parseInt(cb.dataset.line, 10);
-      const lines = textarea.value.split('\n');
-      if (idx < 0 || idx >= lines.length) return;
-      const m = lines[idx].match(/^(\s*[-*] \[)( |x|X)(\].*)$/);
-      if (!m) return;
-      lines[idx] = m[1] + (m[2].toLowerCase() === 'x' ? ' ' : 'x') + m[3];
-      textarea.value = lines.join('\n');
-      updateCounter(); await save(); renderPreview();
+      const row = e.target.closest('.chk-line[data-line]');
+      if (!row) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = parseInt(row.dataset.line, 10);
+      if (Number.isNaN(idx)) return;
+      const next = toggleCheckInContent(textarea.value, idx);
+      if (next === textarea.value) return;
+      textarea.value = next;
+      updateCounter();
+      renderPreview();
+      await save();
     });
     shadow.getElementById('defaultBtn').addEventListener('click', async () => {
       const pat = currentSitePattern();
